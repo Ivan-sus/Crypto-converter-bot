@@ -37,19 +37,18 @@ dp = Dispatcher()
 
 class ConverterState(StatesGroup):
     waiting_for_amount = State()
+    active_converter = State()  # Состояние постоянной работы
 
 # 4. Функция получения курсов (фиат + Binance для крипты)
 async def get_all_rates():
     rates = {}
     async with aiohttp.ClientSession() as session:
         try:
-            # Получаем фиатные курсы (USD как база)
             async with session.get("https://open.er-api.com/v6/latest/USD") as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     rates.update(data.get("rates", {}))
 
-            # Получаем курсы криптовалют через стабильный API Binance
             async with session.get("https://api.binance.com/api/v3/ticker/price") as resp:
                 if resp.status == 200:
                     prices = await resp.json()
@@ -68,7 +67,8 @@ def get_currency_keyboard():
         [InlineKeyboardButton(text="🇺🇸 USD", callback_data="curr_USD"), InlineKeyboardButton(text="🇪🇺 EUR", callback_data="curr_EUR")],
         [InlineKeyboardButton(text="🇷🇺 RUB", callback_data="curr_RUB"), InlineKeyboardButton(text="🇦🇲 AMD", callback_data="curr_AMD")],
         [InlineKeyboardButton(text="🪙 USDT", callback_data="curr_USDT"), InlineKeyboardButton(text="₿ BTC", callback_data="curr_BTC")],
-        [InlineKeyboardButton(text="Ξ ETH", callback_data="curr_ETH"), InlineKeyboardButton(text="💎 TON", callback_data="curr_TON")]
+        [InlineKeyboardButton(text="Ξ ETH", callback_data="curr_ETH"), InlineKeyboardButton(text="💎 TON", callback_data="curr_TON")],
+        [InlineKeyboardButton(text="✏️ Изменить сумму", callback_data="change_amount")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -88,13 +88,30 @@ async def process_amount(message: types.Message, state: FSMContext):
         return
 
     await state.update_data(amount=amount)
-    await message.answer("Выберите валюту, **из которой** переводим:", reply_markup=get_currency_keyboard())
+    await state.set_state(ConverterState.active_converter)
+    
+    # Показываем базовое сообщение со списком валют
+    await message.answer(
+        f"💵 Сумма установлена: **{amount}**\n\nВыберите валюту, **из которой** переводим:",
+        reply_markup=get_currency_keyboard(),
+        parse_mode="Markdown"
+    )
+
+@dp.callback_query(F.data == "change_amount")
+async def change_amount_callback(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(ConverterState.waiting_for_amount)
+    await callback.message.answer("Введите новую сумму для конвертации:")
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("curr_"))
 async def process_currency_choice(callback: types.CallbackQuery, state: FSMContext):
     from_curr = callback.data.split("_")[1]
     data = await state.get_data()
     amount = data.get("amount")
+
+    if not amount:
+        await callback.message.answer("Сумма не найдена. Пожалуйста, отправьте /start")
+        return
 
     rates = await get_all_rates()
 
@@ -127,7 +144,8 @@ async def process_currency_choice(callback: types.CallbackQuery, state: FSMConte
     res_ton = usd_value / ton_price if ton_price else 0
 
     result_text = (
-        f"💱 Конвертация: {amount} {from_curr}\nФиат:\n"
+        f"💱 База: **{amount} {from_curr}**\n\n"
+        f"Фиат:\n"
         f"🇺🇸 USD: {res_usd:.2f}\n"
         f"🇪🇺 EUR: {res_eur:.2f}\n"
         f"🇷🇺 RUB: {res_rub:.2f}\n"
@@ -137,11 +155,14 @@ async def process_currency_choice(callback: types.CallbackQuery, state: FSMConte
         f"₿ BTC: {res_btc:.6f}\n"
         f"Ξ ETH: {res_eth:.5f}\n"
         f"💎 TON: {res_ton:.2f}\n\n"
-        f"Хочешь пересчитать еще? Нажми /start"
+        f"👇 Нажмите другую валюту для пересчета или измените сумму:"
     )
 
-    await callback.message.answer(result_text)
-    await state.clear()
+    # Редактируем существующее сообщение, чтобы не плодить новые
+    try:
+        await callback.message.edit_text(result_text, reply_markup=get_currency_keyboard(), parse_mode="Markdown")
+    except Exception:
+        pass
     await callback.answer()
 
 async def main():
