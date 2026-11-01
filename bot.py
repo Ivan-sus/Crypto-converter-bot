@@ -8,12 +8,18 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-# Простейший веб-сервер для того, чтобы Render видел открытый порт
+
+# Веб-сервер для прохождения проверки порта на бесплатном Render
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
+        self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"Bot is alive!")
+        self.wfile.write(b"Bot is alive and running!")
+        
+    def log_message(self, format, *args):
+        # Отключаем лишний мусор в логах от HTTP-запросов
+        return
 
 def run_web_server():
     server_address = ("", 10000)
