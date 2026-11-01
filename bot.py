@@ -36,8 +36,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 class ConverterState(StatesGroup):
-    waiting_for_amount = State()
-    active_converter = State()  # Состояние постоянной работы
+    active_converter = State()
 
 # 4. Функция получения курсов (фиат + Binance для крипты)
 async def get_all_rates():
@@ -67,51 +66,71 @@ def get_currency_keyboard():
         [InlineKeyboardButton(text="🇺🇸 USD", callback_data="curr_USD"), InlineKeyboardButton(text="🇪🇺 EUR", callback_data="curr_EUR")],
         [InlineKeyboardButton(text="🇷🇺 RUB", callback_data="curr_RUB"), InlineKeyboardButton(text="🇦🇲 AMD", callback_data="curr_AMD")],
         [InlineKeyboardButton(text="🪙 USDT", callback_data="curr_USDT"), InlineKeyboardButton(text="₿ BTC", callback_data="curr_BTC")],
-        [InlineKeyboardButton(text="Ξ ETH", callback_data="curr_ETH"), InlineKeyboardButton(text="💎 TON", callback_data="curr_TON")],
-        [InlineKeyboardButton(text="✏️ Изменить сумму", callback_data="change_amount")]
+        [InlineKeyboardButton(text="Ξ ETH", callback_data="curr_ETH"), InlineKeyboardButton(text="💎 TON", callback_data="curr_TON")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
+    await state.set_state(ConverterState.active_converter)
     await message.answer(
-        "Привет! Я крипто-фиатный конвертер.\n\nВведите сумму, которую хотите конвертировать (например: `100` или `50.5`):"
+        "🤖 Бот готов к работе!\n\nПросто отправь мне любое число (например: `100` или `50.5`), а затем выбирай валюты кнопками:",
+        reply_markup=get_currency_keyboard()
     )
-    await state.set_state(ConverterState.waiting_for_amount)
 
-@dp.message(ConverterState.waiting_for_amount)
-async def process_amount(message: types.Message, state: FSMContext):
+# Обработка любого введенного числа (сумма обновляется на лету)
+@dp.message(ConverterState.active_converter)
+async def process_new_amount(message: types.Message, state: FSMContext):
     try:
         amount = float(message.text.replace(",", "."))
     except ValueError:
         await message.answer("Пожалуйста, введите корректное число (например: 100).")
         return
 
-    await state.update_data(amount=amount)
-    await state.set_state(ConverterState.active_converter)
+    # Сохраняем новую сумму в стейт
+    await state.update_data(amount=amount, last_curr="USD")
     
-    # Показываем базовое сообщение со списком валют
-    await message.answer(
-        f"💵 Сумма установлена: **{amount}**\n\nВыберите валюту, **из которой** переводим:",
-        reply_markup=get_currency_keyboard(),
-        parse_mode="Markdown"
+    # По умолчанию считаем от USD
+    rates = await get_all_rates()
+    usd_value = amount
+
+    res_usd = usd_value
+    res_eur = usd_value * rates.get("EUR", 1)
+    res_rub = usd_value * rates.get("RUB", 1)
+    res_amd = usd_value * rates.get("AMD", 1)
+
+    btc_price = rates.get("BTC_USD")
+    eth_price = rates.get("ETH_USD")
+    usdt_price = rates.get("USDT_USD")
+    ton_price = rates.get("TON_USD")
+
+    res_usdt = usd_value / usdt_price if usdt_price else 0
+    res_btc = usd_value / btc_price if btc_price else 0
+    res_eth = usd_value / eth_price if eth_price else 0
+    res_ton = usd_value / ton_price if ton_price else 0
+
+    result_text = (
+        f"💱 База: **{amount} USD**\n\n"
+        f"Фиат:\n"
+        f"🇺🇸 USD: {res_usd:.2f}\n"
+        f"🇪🇺 EUR: {res_eur:.2f}\n"
+        f"🇷🇺 RUB: {res_rub:.2f}\n"
+        f"🇦🇲 AMD: {res_amd:.2f}\n\n"
+        f"Криптовалюта:\n"
+        f"🟡 USDT: {res_usdt:.2f}\n"
+        f"₿ BTC: {res_btc:.6f}\n"
+        f"Ξ ETH: {res_eth:.5f}\n"
+        f"💎 TON: {res_ton:.2f}\n\n"
+        f"👇 Выберите валюту или отправьте новое число:"
     )
 
-@dp.callback_query(F.data == "change_amount")
-async def change_amount_callback(callback: types.CallbackQuery, state: FSMContext):
-    await state.set_state(ConverterState.waiting_for_amount)
-    await callback.message.answer("Введите новую сумму для конвертации:")
-    await callback.answer()
+    await message.answer(result_text, reply_markup=get_currency_keyboard(), parse_mode="Markdown")
 
 @dp.callback_query(F.data.startswith("curr_"))
 async def process_currency_choice(callback: types.CallbackQuery, state: FSMContext):
     from_curr = callback.data.split("_")[1]
     data = await state.get_data()
-    amount = data.get("amount")
-
-    if not amount:
-        await callback.message.answer("Сумма не найдена. Пожалуйста, отправьте /start")
-        return
+    amount = data.get("amount", 100) # По умолчанию 100, если вдруг пусто
 
     rates = await get_all_rates()
 
@@ -155,10 +174,9 @@ async def process_currency_choice(callback: types.CallbackQuery, state: FSMConte
         f"₿ BTC: {res_btc:.6f}\n"
         f"Ξ ETH: {res_eth:.5f}\n"
         f"💎 TON: {res_ton:.2f}\n\n"
-        f"👇 Нажмите другую валюту для пересчета или измените сумму:"
+        f"👇 Выберите другую валюту или отправьте новое число:"
     )
 
-    # Редактируем существующее сообщение, чтобы не плодить новые
     try:
         await callback.message.edit_text(result_text, reply_markup=get_currency_keyboard(), parse_mode="Markdown")
     except Exception:
