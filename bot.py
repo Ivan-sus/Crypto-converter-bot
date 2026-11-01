@@ -27,7 +27,7 @@ def start_server():
 threading.Thread(target=start_server, daemon=True).start()
 
 # 2. Твой токен от BotFather
-TOKEN = "9117035806:AAGPv4a8YN1hVSlQ2FPjK-ZutaSwslzK3hc"
+TOKEN = "9117035806:AAEAevrS2Ue8hNBoGgv-oftHOzJDyzfhGRw"
 
 # 3. Настройка логирования
 logging.basicConfig(level=logging.INFO)
