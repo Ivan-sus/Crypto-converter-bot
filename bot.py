@@ -1,6 +1,19 @@
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import asyncio
 import logging
 import aiohttp
+# Простейший веб-сервер для того, чтобы Render видел открытый порт
+class SimpleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+def run_web_server():
+    server_address = ("", 10000)
+    httpd = HTTPServer(server_address, SimpleHandler)
+    httpd.serve_forever()
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -142,8 +155,9 @@ async def process_amount(message: types.Message, state: FSMContext):
     await state.clear()
 
 async def main():
+    # Запускаем веб-сервер в фоне для Render
+    server_thread = threading.Thread(target=run_web_server, daemon=True)
+    server_thread.start()
+    
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
