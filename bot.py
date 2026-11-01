@@ -10,7 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-# 1. Мгновенный веб-сервер для порта Render (запускается до всего остального)
+# 1. Веб-сервер для удержания порта Render в активном состоянии
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -26,10 +26,10 @@ def start_server():
 
 threading.Thread(target=start_server, daemon=True).start()
 
-# 2. Твой токен от BotFather
+# 2. Твой актуальный рабочий токен от BotFather
 TOKEN = "9117035806:AAEAevrS2Ue8hNBoGgv-oftHOzJDyzfhGRw"
 
-# 3. Настройка логирования
+# 3. Логирование и инициализация бота
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=TOKEN)
@@ -38,24 +38,27 @@ dp = Dispatcher()
 class ConverterState(StatesGroup):
     waiting_for_amount = State()
 
-# 4. Функция получения курсов
+# 4. Функция получения курсов (фиат + Binance для крипты)
 async def get_all_rates():
     rates = {}
     async with aiohttp.ClientSession() as session:
         try:
+            # Получаем фиатные курсы (USD как база)
             async with session.get("https://open.er-api.com/v6/latest/USD") as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     rates.update(data.get("rates", {}))
 
-            crypto_url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,tether,the-open-network&vs_currencies=usd"
-            async with session.get(crypto_url) as resp:
+            # Получаем курсы криптовалют через стабильный API Binance
+            async with session.get("https://api.binance.com/api/v3/ticker/price") as resp:
                 if resp.status == 200:
-                    c_data = await resp.json()
-                    rates["BTC_USD"] = c_data.get("bitcoin", {}).get("usd")
-                    rates["ETH_USD"] = c_data.get("ethereum", {}).get("usd")
-                    rates["USDT_USD"] = c_data.get("tether", {}).get("usd")
-                    rates["TON_USD"] = c_data.get("the-open-network", {}).get("usd")
+                    prices = await resp.json()
+                    binance_prices = {item['symbol']: float(item['price']) for item in prices}
+                    
+                    rates["BTC_USD"] = binance_prices.get("BTCUSDT")
+                    rates["ETH_USD"] = binance_prices.get("ETHUSDT")
+                    rates["TON_USD"] = binance_prices.get("TONUSDT")
+                    rates["USDT_USD"] = 1.0  # USDT к USD всегда 1
         except Exception as e:
             logging.error(f"Ошибка получения курсов: {e}")
     return rates
