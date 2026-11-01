@@ -3,6 +3,11 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import asyncio
 import logging
 import aiohttp
+from aiogram import Bot, Dispatcher, F, types
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 # Простейший веб-сервер для того, чтобы Render видел открытый порт
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -14,12 +19,6 @@ def run_web_server():
     server_address = ("", 10000)
     httpd = HTTPServer(server_address, SimpleHandler)
     httpd.serve_forever()
-from aiogram import Bot, Dispatcher, F, types
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-
 # Твой токен от BotFather
 TOKEN = "9117035806:AAGPv4a8YN1hVSlQ2FPjK-ZutaSwslzK3hc"
 
